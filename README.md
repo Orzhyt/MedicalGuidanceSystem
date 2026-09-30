@@ -11,9 +11,9 @@
 
 - **接口1**：查询 医院-科室-医生 树状列表（可查全部或单个医院）。
 - **接口2**：查询某医生未来两周可预约时段，返回每个时段的号源容量、已约数、剩余数、是否约满。
-- **接口3**：根据 `医生id + 日期 + 时段` 创建预约；若冲突（已约满 / 非法时段 / 超出窗口）则失败，并返回当前可预约时段列表。
-- **接口4**：根据预约 id 查询预约详情（含医院-科室-医生-时间-患者）。
-- **接口5**：`DELETE` 取消预约（软取消，立即释放号源）。
+- **接口3**：根据 `医生id + 日期 + 时段 + 病人编号` 创建预约；若冲突（已约满 / 非法时段 / 超出窗口）则失败，并返回当前可预约时段列表。
+- **接口4**：按 `patient_id` 查询某病人的全部预约（只需病人 id）。
+- **接口5**：取消预约，需 `预约id + 病人id` 且归属匹配才允许取消（软取消，立即释放号源）。
 - **动态可预约窗口**：按系统时间计算，范围为 **明天起 14 天**，课程中任意日期运行都适用。
 - **演示满号**：排班规则上预置 `demo_booked`，使每个医生都有几个"按时段"满号的规则（不绑定某一天，窗口内所有匹配日期都满），方便演示冲突。
 - **重启归零**：运行时为内存库，API 写入只在本次会话生效；重启服务即恢复初始演示状态，不会累积脏数据。
@@ -97,7 +97,7 @@ python main.py --host 0.0.0.0 --port 9090 --no-reload
 | `departments` | 科室 | id, hospital_id(FK), name, description |
 | `doctors` | 医生 | id, department_id(FK), name, title(职称), specialty |
 | `schedules` | 每周排班规则 | id, doctor_id(FK), weekday(0=周一…6=周日), start_time, end_time, capacity(号源数), demo_booked(演示预占号数) |
-| `appointments` | 预约 | id, doctor_id(FK), slot_date, start_time, end_time, patient_name, patient_phone, status, created_at |
+| `appointments` | 预约 | id, doctor_id(FK), slot_date, start_time, end_time, patient_id(病人编号), status, created_at |
 
 **排班设计**：`schedules` 存"每周几的某时段放多少号"，不绑定具体日期；查询时按当前可预约窗口动态展开成具体时段。某时段余号 = `capacity - (真实已确认预约数 + demo_booked)`。
 
@@ -191,11 +191,21 @@ POST /api/appointments
 {
   "doctor_id": 1,
   "slot_date": "2026-10-01",
-  "start_time": "08:00:00",
-  "patient_name": "张三",
-  "patient_phone": "13900000002"
+  "start_time": "14:00:00",
+  "patient_id": "P20260001"
 }
 ```
+
+**请求字段说明**：
+
+| 字段 | 含义 | 备注 |
+|---|---|---|
+| `doctor_id` | 医生 id | 从接口1获取 |
+| `slot_date` | 预约日期 | 必须在可预约窗口内（明天起 14 天） |
+| `start_time` | **时段选择器**，指定当天约哪个时段 | 只能取 `"08:00:00"`（上午）或 `"14:00:00"`（下午），且必须在该医生当天的排班里 |
+| `patient_id` | 病人编号/病历号 | 关联病人，不再使用姓名/电话 |
+
+> **关于 `start_time`**：同一位医生同一天可能有上午、下午两个时段，光给 `doctor_id + slot_date` 无法确定约哪个号，必须用 `start_time` 指定。三者组合 `(doctor_id, slot_date, start_time)` 定位唯一号源，系统按 `slot_date` 的星期几 + `start_time` 匹配该医生的排班规则得到容量并校验。**建议先调接口2 `GET /api/doctors/{id}/slots` 拿到可选的 `slot_date + start_time`，再据此下单**，避免传错时段（如把上午时间传到只有下午班的日子）。传了不存在的时段会返回 `该时段不在医生的排班规则中`。
 
 **成功响应**：
 
@@ -209,9 +219,9 @@ POST /api/appointments
     "department_name": "内科",
     "doctor_name": "张建国",
     "slot_date": "2026-10-01",
-    "start_time": "08:00:00",
-    "end_time": "12:00:00",
-    "patient_name": "张三",
+    "start_time": "14:00:00",
+    "end_time": "17:00:00",
+    "patient_id": "P20260001",
     "status": "confirmed"
   },
   "available_slots": []
@@ -237,23 +247,46 @@ POST /api/appointments
 | 日期早于明天 | `预约日期不能早于明天` |
 | 日期超出两周窗口 | `预约日期超出可预约窗口（YYYY-MM-DD）` |
 | 时段不在排班规则中 | `该时段不在医生的排班规则中` |
+| 该病人已约过该时段 | `该时段已预约过，不能重复提交` |
 | 时段已约满 | `该时段已约满，请选择其他时段` |
 
-### 接口4：查询预约详情
+### 接口4：按病人编号查询预约
 
 ```
-GET /api/appointments/{appointment_id}
+GET /api/appointments?patient_id={patient_id}
 ```
 
-返回该预约的医院-科室-医生-时间-患者完整信息；不存在则 `404`。
+返回该病人的全部预约（按 slot_date, start_time 排序）；无预约则返回空数组。
+
+```json
+[
+  {
+    "id": 1,
+    "hospital_name": "云岭省星海市第一人民医院",
+    "department_name": "内科",
+    "doctor_name": "张建国",
+    "slot_date": "2026-10-01",
+    "start_time": "14:00:00",
+    "end_time": "17:00:00",
+    "patient_id": "P20260001",
+    "status": "confirmed"
+  }
+]
+```
+
+> 查询只需 `patient_id`，返回该病人全部预约的完整信息（含医院-科室-医生-时间-状态）。已无"按预约 id 查详情"的接口。
 
 ### 接口5：取消预约
 
 ```
-DELETE /api/appointments/{appointment_id}
+DELETE /api/appointments?appointment_id={appointment_id}&patient_id={patient_id}
 ```
 
-软取消：将 `status` 置为 `cancelled`，立即释放该时段号源（因余号只统计 `confirmed`）。返回更新后的预约详情（`status=cancelled`）；不存在则 `404`；已取消则原样返回（幂等）。
+预约 id 与病人 id **都放在 query 参数**，且二者归属匹配才允许取消（防止取消他人预约）：
+
+- 预约不存在 → `404`。
+- `patient_id` 与该预约的归属不匹配 → `403 无权取消: patient_id 与该预约不匹配`。
+- 匹配则软取消：`status` 置为 `cancelled`，立即释放该时段号源（余号只统计 `confirmed`）；返回更新后的预约详情；已取消则原样返回（幂等）。
 
 ---
 
@@ -309,14 +342,14 @@ curl http://127.0.0.1:9090/api/hospitals
 # 查询医生1的两周时段
 curl http://127.0.0.1:9090/api/doctors/1/slots
 
-# 创建预约
+# 创建预约（只需病人编号 patient_id；start_time 必须是医生当天排班里的时段）
 curl -X POST http://127.0.0.1:9090/api/appointments \
   -H "Content-Type: application/json" \
-  -d '{"doctor_id":1,"slot_date":"2026-10-01","start_time":"08:00:00","patient_name":"张三","patient_phone":"13900000002"}'
+  -d '{"doctor_id":1,"slot_date":"2026-10-01","start_time":"14:00:00","patient_id":"P20260001"}'
 
-# 查询预约
-curl http://127.0.0.1:9090/api/appointments/1
+# 按病人编号查询其预约（只需 patient_id）
+curl "http://127.0.0.1:9090/api/appointments?patient_id=P20260001"
 
-# 取消预约
-curl -X DELETE http://127.0.0.1:9090/api/appointments/1
+# 取消预约（预约id + 病人id 均放query，归属匹配才取消）
+curl -X DELETE "http://127.0.0.1:9090/api/appointments?appointment_id=1&patient_id=P20260001"
 ```

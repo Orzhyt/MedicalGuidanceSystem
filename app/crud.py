@@ -132,6 +132,23 @@ def create_appointment(
             available_slots=get_doctor_slots(db, payload.doctor_id),
         )
 
+    # 重复预约校验：同一病人对同一时段已有确认预约则拒绝
+    dup = db.scalars(
+        select(Appointment).where(
+            Appointment.doctor_id == payload.doctor_id,
+            Appointment.slot_date == payload.slot_date,
+            Appointment.start_time == payload.start_time,
+            Appointment.patient_id == payload.patient_id,
+            Appointment.status == AppointmentStatus.CONFIRMED,
+        ).limit(1)
+    ).first()
+    if dup is not None:
+        return schemas.AppointmentCreateResponse(
+            success=False,
+            message="该时段已预约过，不能重复提交",
+            available_slots=get_doctor_slots(db, payload.doctor_id),
+        )
+
     # 容量校验（真实已确认预约 + 演示预占）
     booked = _booked_count(db, payload.doctor_id, payload.slot_date, payload.start_time) + schedule.demo_booked
     if booked >= schedule.capacity:
@@ -147,8 +164,7 @@ def create_appointment(
         slot_date=payload.slot_date,
         start_time=schedule.start_time,
         end_time=schedule.end_time,
-        patient_name=payload.patient_name,
-        patient_phone=payload.patient_phone,
+        patient_id=payload.patient_id,
         status=AppointmentStatus.CONFIRMED,
     )
     db.add(appointment)
@@ -174,6 +190,19 @@ def get_appointment(db: Session, appointment_id: int) -> Appointment | None:
     return db.scalars(stmt).first()
 
 
+def list_appointments_by_patient(db: Session, patient_id: str) -> list[Appointment]:
+    """按病人编号查询其全部预约（含医院-科室-医生-时间）。"""
+    stmt = (
+        select(Appointment)
+        .options(
+            selectinload(Appointment.doctor).selectinload(Doctor.department).selectinload(Department.hospital),
+        )
+        .where(Appointment.patient_id == patient_id)
+        .order_by(Appointment.slot_date, Appointment.start_time)
+    )
+    return list(db.scalars(stmt))
+
+
 def _to_appointment_out(appt: Appointment) -> schemas.AppointmentOut:
     doctor = appt.doctor
     dept = doctor.department
@@ -190,21 +219,7 @@ def _to_appointment_out(appt: Appointment) -> schemas.AppointmentOut:
         slot_date=appt.slot_date,
         start_time=appt.start_time,
         end_time=appt.end_time,
-        patient_name=appt.patient_name,
-        patient_phone=appt.patient_phone,
+        patient_id=appt.patient_id,
         status=appt.status,
         created_at=appt.created_at,
     )
-
-
-# ---------------- 取消预约 ----------------
-def cancel_appointment(db: Session, appointment_id: int) -> Appointment | None:
-    """软取消预约：置 status=CANCELLED，立即释放号源。已取消则原样返回（幂等）。"""
-    appt = get_appointment(db, appointment_id)
-    if appt is None:
-        return None
-    if appt.status != AppointmentStatus.CANCELLED:
-        appt.status = AppointmentStatus.CANCELLED
-        db.commit()
-        db.refresh(appt)
-    return appt

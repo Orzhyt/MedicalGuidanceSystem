@@ -121,8 +121,7 @@ class Appointment(Base):
     slot_date: Mapped[date] = mapped_column(Date, nullable=False)
     start_time: Mapped[time] = mapped_column(Time, nullable=False)
     end_time: Mapped[time] = mapped_column(Time, nullable=False)
-    patient_name: Mapped[str] = mapped_column(String(32), nullable=False)
-    patient_phone: Mapped[str] = mapped_column(String(32), nullable=False)
+    patient_id: Mapped[str] = mapped_column(String(32), nullable=False, comment="病人编号/病历号")
     status: Mapped[AppointmentStatus] = mapped_column(
         Enum(AppointmentStatus), nullable=False, default=AppointmentStatus.CONFIRMED
     )

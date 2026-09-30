@@ -70,8 +70,7 @@ class AppointmentCreate(BaseModel):
     doctor_id: int
     slot_date: date
     start_time: time
-    patient_name: str = Field(min_length=1, max_length=32)
-    patient_phone: str = Field(min_length=6, max_length=32)
+    patient_id: str = Field(min_length=1, max_length=32, description="病人编号/病历号")
 
 
 class AppointmentOut(ORMBase):
@@ -88,8 +87,7 @@ class AppointmentOut(ORMBase):
     slot_date: date
     start_time: time
     end_time: time
-    patient_name: str
-    patient_phone: str
+    patient_id: str
     status: AppointmentStatus
     created_at: datetime
 
