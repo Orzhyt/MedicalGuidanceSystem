@@ -5,7 +5,6 @@ from datetime import date, datetime, time
 from enum import Enum as PyEnum
 
 from sqlalchemy import (
-    Boolean,
     Date,
     DateTime,
     Enum,
@@ -102,6 +101,10 @@ class Schedule(Base):
     start_time: Mapped[time] = mapped_column(Time, nullable=False)
     end_time: Mapped[time] = mapped_column(Time, nullable=False)
     capacity: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    demo_booked: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0",
+        comment="演示预占号数（recurring，按时段而非具体日期）",
+    )
 
     doctor: Mapped[Doctor] = relationship(back_populates="schedules")
 
@@ -122,10 +125,6 @@ class Appointment(Base):
     patient_phone: Mapped[str] = mapped_column(String(32), nullable=False)
     status: Mapped[AppointmentStatus] = mapped_column(
         Enum(AppointmentStatus), nullable=False, default=AppointmentStatus.CONFIRMED
-    )
-    is_demo: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=False, server_default="0",
-        comment="是否为示例预置数据（启动时按当前窗口刷新）",
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.current_timestamp()

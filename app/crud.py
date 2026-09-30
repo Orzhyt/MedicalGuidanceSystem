@@ -55,7 +55,7 @@ def _booked_count(db: Session, doctor_id: int, slot_date: date, start_time) -> i
 def _build_slot(
     db: Session, doctor_id: int, slot_date: date, schedule: Schedule
 ) -> schemas.SlotOut:
-    booked = _booked_count(db, doctor_id, slot_date, schedule.start_time)
+    booked = _booked_count(db, doctor_id, slot_date, schedule.start_time) + schedule.demo_booked
     available = schedule.capacity - booked
     return schemas.SlotOut(
         slot_date=slot_date,
@@ -105,7 +105,6 @@ def create_appointment(
             available_slots=[],
         )
 
-    today = date.today()
     start, end = booking_window()
     if payload.slot_date < start:
         return schemas.AppointmentCreateResponse(
@@ -133,8 +132,8 @@ def create_appointment(
             available_slots=get_doctor_slots(db, payload.doctor_id),
         )
 
-    # 容量校验
-    booked = _booked_count(db, payload.doctor_id, payload.slot_date, payload.start_time)
+    # 容量校验（真实已确认预约 + 演示预占）
+    booked = _booked_count(db, payload.doctor_id, payload.slot_date, payload.start_time) + schedule.demo_booked
     if booked >= schedule.capacity:
         return schemas.AppointmentCreateResponse(
             success=False,
@@ -196,3 +195,16 @@ def _to_appointment_out(appt: Appointment) -> schemas.AppointmentOut:
         status=appt.status,
         created_at=appt.created_at,
     )
+
+
+# ---------------- 取消预约 ----------------
+def cancel_appointment(db: Session, appointment_id: int) -> Appointment | None:
+    """软取消预约：置 status=CANCELLED，立即释放号源。已取消则原样返回（幂等）。"""
+    appt = get_appointment(db, appointment_id)
+    if appt is None:
+        return None
+    if appt.status != AppointmentStatus.CANCELLED:
+        appt.status = AppointmentStatus.CANCELLED
+        db.commit()
+        db.refresh(appt)
+    return appt
