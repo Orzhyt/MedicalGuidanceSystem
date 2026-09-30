@@ -71,14 +71,19 @@ pip install -r requirements.txt
 ## 启动
 
 ```bash
-python main.py
+python main.py                 # 默认 127.0.0.1:9090
+python main.py --port 8080     # 自定义端口
+PORT=8080 python main.py       # 用环境变量 PORT 自定义端口
+python main.py --host 0.0.0.0 --port 9090 --no-reload
 ```
 
 启动后：
 
-- 服务地址：`http://127.0.0.1:8000`
-- 交互式 API 文档（Swagger UI）：`http://127.0.0.1:8000/docs`
-- ReDoc 文档：`http://127.0.0.1:8000/redoc`
+- 服务地址：`http://127.0.0.1:9090`
+- 交互式 API 文档（Swagger UI）：`http://127.0.0.1:9090/docs`
+- ReDoc 文档：`http://127.0.0.1:9090/redoc`
+
+端口默认 9090，可通过 `--port` 参数或 `PORT` 环境变量覆盖；地址可通过 `--host` 或 `HOST` 环境变量覆盖。
 
 每次启动在内存中建表并播种示例数据；**停止服务即清空**，再次启动回到初始状态。API 写入不会落盘，也不会修改 `data/medical.db`。
 
@@ -295,23 +300,23 @@ DELETE /api/appointments/{appointment_id}
 
 ## 快速验证
 
-启动服务后，可用浏览器打开 `http://127.0.0.1:8000/docs` 直接在线测试全部接口；或用 curl：
+启动服务后，可用浏览器打开 `http://127.0.0.1:9090/docs` 直接在线测试全部接口；或用 curl：
 
 ```bash
 # 查询医院树
-curl http://127.0.0.1:8000/api/hospitals
+curl http://127.0.0.1:9090/api/hospitals
 
 # 查询医生1的两周时段
-curl http://127.0.0.1:8000/api/doctors/1/slots
+curl http://127.0.0.1:9090/api/doctors/1/slots
 
 # 创建预约
-curl -X POST http://127.0.0.1:8000/api/appointments \
+curl -X POST http://127.0.0.1:9090/api/appointments \
   -H "Content-Type: application/json" \
   -d '{"doctor_id":1,"slot_date":"2026-10-01","start_time":"08:00:00","patient_name":"张三","patient_phone":"13900000002"}'
 
 # 查询预约
-curl http://127.0.0.1:8000/api/appointments/1
+curl http://127.0.0.1:9090/api/appointments/1
 
 # 取消预约
-curl -X DELETE http://127.0.0.1:8000/api/appointments/1
+curl -X DELETE http://127.0.0.1:9090/api/appointments/1
 ```
