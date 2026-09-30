@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>医生排期查看</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif; background: #f5f7fa; color: #333; }
+  header { background: #1f3a5f; color: #fff; padding: 14px 24px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  header h1 { font-size: 18px; margin: 0; font-weight: 600; }
+  header .sub { font-size: 13px; opacity: .85; }
+  .bar { background: #fff; padding: 12px 24px; border-bottom: 1px solid #e3e8ef; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  label { font-size: 13px; color: #555; }
+  select { padding: 6px 10px; border: 1px solid #cfd8e3; border-radius: 6px; font-size: 13px; min-width: 160px; background: #fff; }
+  select:disabled { background: #f0f0f0; }
+  .legend { margin-left: auto; display: flex; gap: 14px; font-size: 12px; color: #555; }
+  .legend .item { display: inline-flex; align-items: center; gap: 5px; }
+  .dot { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+  .dot.open { background: #2e9e5b; }
+  .dot.part { background: #e0a800; }
+  .dot.full { background: #d9534f; }
+  .dot.rest { background: #cfd8e3; }
+  #result { padding: 16px 24px; }
+  .card { background: #fff; border: 1px solid #e3e8ef; border-radius: 8px; margin-bottom: 16px; overflow: hidden; }
+  .card-h { padding: 10px 14px; border-bottom: 1px solid #eef2f7; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; background: #fafbfc; }
+  .dname { font-size: 15px; font-weight: 600; }
+  .dtitle { font-size: 12px; color: #1f3a5f; background: #e8eef6; padding: 2px 8px; border-radius: 10px; }
+  .dspec { font-size: 12px; color: #888; }
+  .dsum { margin-left: auto; font-size: 12px; color: #666; }
+  .cal { border-collapse: collapse; width: 100%; font-size: 12px; }
+  .cal th { background: #1f3a5f; color: #fff; padding: 6px; font-weight: 500; text-align: center; }
+  .cal th:first-child { border-top-left-radius: 0; }
+  .cal td { border: 1px solid #eef2f7; padding: 4px; vertical-align: top; height: 56px; width: 14.28%; }
+  .cal td.off { background: #fafbfc; }
+  .cal td.rest { background: #fcfcfd; }
+  .dnum { display: block; color: #9aa3b2; font-size: 11px; margin-bottom: 3px; }
+  .restmark { color: #c0c5cf; font-size: 11px; }
+  .bads { display: flex; flex-direction: column; gap: 3px; }
+  .badge { display: inline-block; padding: 2px 5px; border-radius: 4px; font-size: 11px; color: #fff; line-height: 1.4; }
+  .badge.open { background: #2e9e5b; }
+  .badge.part { background: #e0a800; }
+  .badge.full { background: #d9534f; }
+  .empty { color: #999; padding: 10px 14px; font-size: 13px; }
+  .loading { color: #888; font-size: 13px; padding: 10px 0; }
+  .err { color: #d9534f; font-size: 13px; padding: 10px 0; }
+  .hint { font-size: 12px; color: #888; margin-top: 4px; }
+  .grid-h { padding: 6px 12px 0; font-size: 12px; color: #1f3a5f; font-weight: 600; }
+  .grid-h .yr { color: #9aa3b2; font-weight: 400; margin-left: 6px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>医生排期查看</h1>
+  <span class="sub">可预约窗口：以启动时设定的起点为准，共 14 天 · 只读</span>
+</header>
+<div class="bar">
+  <label>医院</label>
+  <select id="hospital"><option value="">加载中...</option></select>
+  <label>科室</label>
+  <select id="department" disabled><option value="">请先选择医院</option></select>
+  <div class="legend">
+    <span class="item"><span class="dot open"></span>可约</span>
+    <span class="item"><span class="dot part"></span>部分已约</span>
+    <span class="item"><span class="dot full"></span>已满</span>
+    <span class="item"><span class="dot rest"></span>无排班</span>
+  </div>
+</div>
+<div id="result"><p class="loading">请选择医院与科室后查看排期。</p></div>
+
+<script>
+const hospSel = document.getElementById('hospital');
+const deptSel = document.getElementById('department');
+const out = document.getElementById('result');
+let tree = [];
+
+function iso(d) {
+  const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, '0'), day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+async function init() {
+  try {
+    const r = await fetch('/api/hospitals');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    tree = await r.json();
+    hospSel.innerHTML = '<option value="">请选择医院</option>' +
+      tree.map(h => `<option value="${h.id}">${h.name}</option>`).join('');
+  } catch (e) {
+    hospSel.innerHTML = '<option value="">加载失败</option>';
+    out.innerHTML = `<p class="err">加载医院列表失败：${e.message}</p>`;
+  }
+}
+
+hospSel.addEventListener('change', () => {
+  const h = tree.find(x => String(x.id) === hospSel.value);
+  if (!h) { deptSel.disabled = true; deptSel.innerHTML = '<option value="">请先选择医院</option>'; out.innerHTML = ''; return; }
+  deptSel.disabled = false;
+  deptSel.innerHTML = '<option value="">全部科室</option>' +
+    h.departments.map(d => `<option value="${d.id}">${d.name}</option>`).join('');
+  render();
+});
+
+deptSel.addEventListener('change', render);
+
+async function render() {
+  const h = tree.find(x => String(x.id) === hospSel.value);
+  if (!h) { out.innerHTML = ''; return; }
+  const deptId = deptSel.value;
+  let doctors = [];
+  if (deptId) {
+    const d = h.departments.find(x => String(x.id) === deptId);
+    doctors = d ? d.doctors : [];
+  } else {
+    doctors = h.departments.flatMap(d => d.doctors);
+  }
+  if (!doctors.length) { out.innerHTML = '<p class="empty">该范围内暂无医生。</p>'; return; }
+  out.innerHTML = '<p class="loading">加载排期中...</p>';
+  try {
+    const results = await Promise.all(doctors.map(async doc => {
+      const r = await fetch(`/api/doctors/${doc.id}/slots`);
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const s = await r.json();
+      return { doc, slots: s.slots || [], ws: s.window_start, we: s.window_end };
+    }));
+    out.innerHTML = results.map(renderDoctor).join('');
+  } catch (e) {
+    out.innerHTML = `<p class="err">加载排期失败：${e.message}</p>`;
+  }
+}
+
+function renderDoctor({ doc, slots, ws, we }) {
+  const total = slots.length;
+  const avail = slots.filter(s => !s.is_full).length;
+  return `<div class="card">
+    <div class="card-h">
+      <span class="dname">${doc.name}</span>
+      <span class="dtitle">${doc.title}</span>
+      <span class="dspec">${doc.specialty || ''}</span>
+      <span class="dsum">可约 ${avail}/${total} 个时段</span>
+    </div>
+    ${renderGrid(slots, ws, we)}
+  </div>`;
+}
+
+function renderGrid(slots, startIso, endIso) {
+  if (!slots.length) return '<div class="empty">该医生在可预约窗口内无排班。</div>';
+  const byDate = {};
+  slots.forEach(s => { (byDate[s.slot_date] ||= []).push(s); });
+  const start = new Date(startIso + 'T00:00:00');
+  const monday = new Date(start);
+  monday.setDate(start.getDate() - ((start.getDay() + 6) % 7));
+  const end = new Date(endIso + 'T00:00:00');
+  const cells = [];
+  const cur = new Date(monday);
+  while (cur <= end) {
+    cells.push({ iso: iso(cur), day: cur.getDate(), month: cur.getMonth() + 1, slots: byDate[iso(cur)] || [] });
+    cur.setDate(cur.getDate() + 1);
+  }
+  while (cells.length % 7 !== 0) cells.push({ iso: null, day: '', month: '', slots: null });
+  const wd = ['一', '二', '三', '四', '五', '六', '日'];
+  const ym = startIso.slice(0, 4);
+  let html = `<div class="grid-h">可预约窗口：${startIso} ~ ${endIso}<span class="yr">${ym}年</span></div>`;
+  html += '<table class="cal"><thead><tr>' + wd.map(w => `<th>${w}</th>`).join('') + '</tr></thead><tbody>';
+  for (let i = 0; i < cells.length; i += 7) {
+    html += '<tr>';
+    for (let j = 0; j < 7; j++) html += renderCell(cells[i + j], startIso, endIso);
+    html += '</tr>';
+  }
+  return html + '</tbody></table>';
+}
+
+function renderCell(c, startIso, endIso) {
+  if (c.iso === null) return '<td class="off"></td>';
+  const inWin = c.iso >= startIso && c.iso <= endIso;
+  const dlabel = `${c.month}/${c.day}`;
+  if (!inWin) return `<td class="off"><span class="dnum">${dlabel}</span></td>`;
+  if (!c.slots.length) return `<td class="rest"><span class="dnum">${dlabel}</span><span class="restmark">休</span></td>`;
+  const badges = c.slots.slice().sort((a, b) => a.start_time.localeCompare(b.start_time)).map(b => {
+    const period = b.start_time.startsWith('08') ? '上午' : '下午';
+    let cls = b.available <= 0 ? 'full' : (b.available < b.capacity ? 'part' : 'open');
+    const label = b.available <= 0 ? '满' : `余${b.available}`;
+    return `<span class="badge ${cls}" title="${period} ${b.start_time}-${b.end_time} 容量${b.capacity} 已约${b.booked_count} 剩余${b.available}">${period}·${label}</span>`;
+  }).join('');
+  return `<td class="day"><span class="dnum">${dlabel}</span><span class="bads">${badges}</span></td>`;
+}
+
+init();
+</script>
+</body>
+</html>

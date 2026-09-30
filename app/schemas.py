@@ -59,6 +59,8 @@ class DoctorSlotsResponse(ORMBase):
 
     doctor: DoctorBrief
     days: int = Field(description="查询天数")
+    window_start: date = Field(description="可预约窗口起点（含）")
+    window_end: date = Field(description="可预约窗口终点（含）")
     slots: list[SlotOut] = Field(default_factory=list)
     available_count: int = 0
 

@@ -25,10 +25,13 @@ def get_doctor_slots(
         raise HTTPException(status_code=404, detail=f"医生不存在: id={doctor_id}")
 
     slots = crud.get_doctor_slots(db, doctor_id, days=days)
+    start, end = crud.booking_window(days)
     available_count = sum(1 for s in slots if not s.is_full)
     return schemas.DoctorSlotsResponse(
         doctor=schemas.DoctorBrief.model_validate(doctor),
         days=days,
+        window_start=start,
+        window_end=end,
         slots=slots,
         available_count=available_count,
     )

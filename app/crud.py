@@ -9,14 +9,30 @@ from sqlalchemy.orm import Session, selectinload
 from app import models, schemas
 from app.models import Appointment, AppointmentStatus, Department, Doctor, Hospital, Schedule
 
-# 可预约窗口：从明天起 BOOKING_DAYS 天
+# 可预约窗口：默认从明天起 BOOKING_DAYS 天；起点可在启动时通过 set_booking_start 固定
 BOOKING_DAYS = 14
 BOOKING_START_OFFSET = 1
+_BOOKING_START: date | None = None
+
+
+def set_booking_start(d: date) -> None:
+    """固定可预约窗口起点（启动时设置一次，之后不再随当前日期变化）。"""
+    global _BOOKING_START
+    _BOOKING_START = d
+
+
+def get_booking_start() -> date | None:
+    """返回当前固定的窗口起点（未设置则 None）。"""
+    return _BOOKING_START
 
 
 def booking_window(days: int = BOOKING_DAYS) -> tuple[date, date]:
-    """返回可预约窗口 [start, end]（含端点），起点为明天。"""
-    start = date.today() + timedelta(days=BOOKING_START_OFFSET)
+    """返回可预约窗口 [start, end]（含端点）。起点以启动时设定的为准，未设定则回退到明天。"""
+    start = (
+        _BOOKING_START
+        if _BOOKING_START is not None
+        else date.today() + timedelta(days=BOOKING_START_OFFSET)
+    )
     end = start + timedelta(days=days - 1)
     return start, end
 
@@ -109,7 +125,7 @@ def create_appointment(
     if payload.slot_date < start:
         return schemas.AppointmentCreateResponse(
             success=False,
-            message="预约日期不能早于明天",
+            message=f"预约日期不能早于可预约起始日（{start}）",
             available_slots=get_doctor_slots(db, payload.doctor_id),
         )
     if payload.slot_date > end:
