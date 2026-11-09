@@ -71,7 +71,7 @@ def _booked_count(db: Session, doctor_id: int, slot_date: date, start_time) -> i
 def _build_slot(
     db: Session, doctor_id: int, slot_date: date, schedule: Schedule
 ) -> schemas.SlotOut:
-    booked = _booked_count(db, doctor_id, slot_date, schedule.start_time) + schedule.demo_booked
+    booked = schedule.demo_booked
     available = schedule.capacity - booked
     return schemas.SlotOut(
         slot_date=slot_date,
@@ -165,8 +165,8 @@ def create_appointment(
             available_slots=get_doctor_slots(db, payload.doctor_id),
         )
 
-    # 容量校验（真实已确认预约 + 演示预占）
-    booked = _booked_count(db, payload.doctor_id, payload.slot_date, payload.start_time) + schedule.demo_booked
+    # 容量校验（教学演示模式：不扣减真实预约，仅看演示预占）
+    booked = schedule.demo_booked
     if booked >= schedule.capacity:
         return schemas.AppointmentCreateResponse(
             success=False,
